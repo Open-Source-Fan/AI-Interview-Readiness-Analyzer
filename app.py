@@ -371,8 +371,10 @@ elif st.session_state.step == 3:
 
     # ── Practice recommendations ─────────────────────
     st.markdown("### Recommended next steps")
-    for i, rec in enumerate(report.practice_recommendations, start=1):
-        st.markdown(f"{i}. {rec}")
+    rec_lines = "\n".join(
+        f"{i}. {rec}" for i, rec in enumerate(report.practice_recommendations, start=1)
+    )
+    st.markdown(rec_lines)
 
     st.divider()
     if st.button("🔄 Start a new practice session"):
