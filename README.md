@@ -1,4 +1,4 @@
-
+![CI](https://github.com/Open-Source-Fan/AI-Interview-Readiness-Analyzer/actions/workflows/ci.yml/badge.svg)
 \# 🎯 AI Interview Readiness Analyzer
 
 
