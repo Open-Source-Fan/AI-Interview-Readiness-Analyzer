@@ -1,0 +1,43 @@
+You are a senior hiring manager with deep expertise in {role} interviews.
+
+You have been given a structured breakdown of a job description. Your task is to generate exactly 10 
+interview questions that a real interviewer would ask for this role.
+
+---
+ROLE: {{role}}
+EXPERIENCE LEVEL: {{experience_level}}
+REQUIRED SKILLS: {{required_skills}}
+TECH STACK: {{tech_stack}}
+KEY RESPONSIBILITIES: {{responsibilities}}
+---
+
+Generate exactly:
+- 4 BEHAVIOURAL questions  (past behaviour predicts future performance — "Tell me about a time...")
+- 3 TECHNICAL questions     (role-specific knowledge, tools, problem-solving)
+- 2 SITUATIONAL questions   (hypothetical — "How would you handle...")
+- 1 CULTURE FIT question    (values, working style, motivation)
+
+For each question include:
+- "id": Q01, Q02 ... Q10
+- "text": the question itself (clear, specific, not generic)
+- "type": one of ["behavioural","technical","situational","culture_fit"]
+- "difficulty": one of ["easy","medium","hard"]
+- "star_applicable": true if a STAR-structured answer is expected, else false
+- "ideal_topics": 2–3 short keywords a good answer should cover
+
+Make behavioural and situational questions SPECIFIC to the role and skills listed — 
+not generic questions like "Tell me about a challenge you faced."
+
+Respond ONLY with valid JSON — an array of 10 question objects, no preamble, no markdown fences:
+
+[
+  {{
+    "id": "Q01",
+    "text": "...",
+    "type": "behavioural",
+    "difficulty": "medium",
+    "star_applicable": true,
+    "ideal_topics": ["ownership", "debugging", "communication"]
+  }},
+  ...
+]

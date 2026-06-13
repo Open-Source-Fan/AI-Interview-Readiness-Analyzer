@@ -1,0 +1,30 @@
+# config.yaml — All tunable thresholds and weights for the evaluation engine.
+# Change these without touching any Python code.
+
+scoring:
+  weights:
+    star:          0.40    # STAR method completeness
+    relevance:     0.30    # Content relevance (cosine similarity)
+    communication: 0.30    # Communication quality
+
+  thresholds:
+    off_topic_cosine: 0.40  # Below this = flagged as off-topic
+    excellent_score:  75    # Composite score ≥ this = Excellent
+    good_score:       50    # Composite score ≥ this = Good
+
+  communication:
+    high_filler_threshold: 5    # More than this = penalised
+    good_reading_ease:     60   # Flesch score above this = rewarded
+    poor_reading_ease:     30   # Below this = penalised
+
+llm:
+  model:       "gpt-4o-mini"
+  temperature: 0
+  max_tokens:  1000
+
+questions:
+  total:        10
+  behavioural:  4
+  technical:    3
+  situational:  2
+  culture_fit:  1
