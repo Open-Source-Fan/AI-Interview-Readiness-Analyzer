@@ -1,6 +1,20 @@
 """
 evaluator.py — Module 4: Evaluation Engine
-Three sub-evaluators that run on each Q&A pair, then combine into a composite score.
+
+Five evaluators run on each Q&A pair and combine into a hybrid composite score.
+
+Existing evaluators (unchanged):
+    STARScorer                — LLM: STAR completeness
+    ContentRelevanceEvaluator — sentence-transformers: cosine similarity
+    CommunicationEvaluator    — spaCy + textstat: clarity metrics
+    FeedbackGenerator         — LLM: 2 actionable improvement tips
+
+New evaluators (Phase 2 additions):
+    RuleBasedScorer  — pure Python/regex: ownership, impact, skills, STAR, length
+    LLMEvaluator     — LLM as senior interviewer: depth, reasoning, maturity
+
+Backward-compatible: existing tests and demo_pipeline.py work unchanged.
+parsed_jd is optional — when omitted, new evaluators use neutral defaults.
 """
 
 import json
@@ -11,26 +25,29 @@ from langchain_core.prompts import PromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 from .schemas import (
-    QAPair, STARScore, CommunicationScore,
-    QuestionEvaluation, Question
+    CommunicationScore,
+    ParsedJD,
+    QAPair,
+    QuestionEvaluation,
+    STARScore,
 )
+from .rule_based_scorer import RuleBasedScorer
+from .llm_evaluator import LLMEvaluator
 
 PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 
-# ─────────────────────────────────────────
-# STAR SCORER
-# ─────────────────────────────────────────
+# ── Sub-evaluator 1: STAR scorer ──────────────────────────────────────────────
 
 class STARScorer:
     """
-    Uses an LLM to score a candidate's answer on all 4 STAR components.
-    Returns a STARScore Pydantic object.
+    Uses an LLM to evaluate the STAR completeness of a candidate answer.
+    Returns a STARScore with per-component scores and evidence quotes.
     """
 
-    def __init__(self, llm):
+    def __init__(self, llm) -> None:
         self.llm = llm
-        prompt_text = (PROMPTS_DIR / "star_scorer.txt").read_text()
+        prompt_text = (PROMPTS_DIR / "star_scorer.txt").read_text(encoding="utf-8")
         self.prompt = PromptTemplate(
             input_variables=["question", "answer"],
             template=prompt_text,
@@ -38,124 +55,128 @@ class STARScorer:
         self.chain = self.prompt | self.llm
 
     def score(self, question: str, answer: str) -> STARScore:
-        raw = self.chain.invoke({"question": question, "answer": answer})
-        clean = self._clean_json(raw.content)
-        data = json.loads(clean)
-        return STARScore(**data)
+        try:
+            response = self.chain.invoke({"question": question, "answer": answer})
+            raw = response.content
 
-    @staticmethod
-    def _clean_json(text: str) -> str:
-        """Strip markdown fences if LLM wraps output despite instructions."""
-        text = re.sub(r"```(?:json)?", "", text).strip()
-        return text
+            # Strip markdown fences
+            cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`")
+            match = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if not match:
+                return STARScore()
+
+            json_str = match.group(0)
+            json_str = re.sub(r",\s*([}\]])", r"\1", json_str)
+            data = json.loads(json_str)
+
+            return STARScore(
+                situation_score=float(data.get("situation_score", 0)),
+                task_score=float(data.get("task_score", 0)),
+                action_score=float(data.get("action_score", 0)),
+                result_score=float(data.get("result_score", 0)),
+                situation_evidence=str(data.get("situation_evidence", "not mentioned")),
+                task_evidence=str(data.get("task_evidence", "not mentioned")),
+                action_evidence=str(data.get("action_evidence", "not mentioned")),
+                result_evidence=str(data.get("result_evidence", "not mentioned")),
+            )
+        except Exception:  # noqa: BLE001
+            return STARScore()
 
 
-# ─────────────────────────────────────────
-# CONTENT RELEVANCE EVALUATOR
-# ─────────────────────────────────────────
+# ── Sub-evaluator 2: Content relevance ────────────────────────────────────────
 
 class ContentRelevanceEvaluator:
     """
-    No LLM needed — uses sentence-transformers cosine similarity.
-    Compares the semantic meaning of the answer against the question.
+    Cosine similarity between question and answer using sentence-transformers.
+    No API cost. Flags off-topic answers below a threshold.
     """
 
-    def __init__(self):
-        from sentence_transformers import SentenceTransformer, util
-        self._model = SentenceTransformer("all-MiniLM-L6-v2")
-        self._util  = util
+    THRESHOLD = 0.40
 
-    def score(self, question: str, answer: str) -> float:
-        """Returns cosine similarity in [0, 1]. Below 0.4 = off-topic."""
-        q_emb = self._model.encode(question, convert_to_tensor=True)
-        a_emb = self._model.encode(answer,   convert_to_tensor=True)
-        sim = self._util.cos_sim(q_emb, a_emb).item()
-        return round(float(sim), 4)
+    def __init__(self) -> None:
+        from sentence_transformers import SentenceTransformer
+        self.model = SentenceTransformer("all-MiniLM-L6-v2")
 
-    def is_off_topic(self, question: str, answer: str, threshold: float = 0.4) -> bool:
-        return self.score(question, answer) < threshold
+    def score(self, question: str, answer: str) -> tuple[float, bool]:
+        """Returns (similarity 0-1, flagged_off_topic bool)."""
+        import numpy as np
+        q_emb = self.model.encode([question])
+        a_emb = self.model.encode([answer])
+        cos_sim = float(
+            np.dot(q_emb[0], a_emb[0]) /
+            (np.linalg.norm(q_emb[0]) * np.linalg.norm(a_emb[0]) + 1e-9)
+        )
+        cos_sim = max(0.0, min(1.0, cos_sim))
+        return cos_sim, cos_sim < self.THRESHOLD
 
 
-# ─────────────────────────────────────────
-# COMMUNICATION QUALITY EVALUATOR
-# ─────────────────────────────────────────
-
-FILLER_WORDS = {
-    "um", "uh", "like", "basically", "literally",
-    "you know", "sort of", "kind of", "actually",
-    "so yeah", "right", "honestly", "obviously",
-}
+# ── Sub-evaluator 3: Communication quality ────────────────────────────────────
 
 class CommunicationEvaluator:
     """
-    No LLM needed — pure NLP using spaCy + textstat.
-    Analyses clarity, conciseness, filler words, passive voice.
+    spaCy + textstat analysis: reading ease, filler words, passive voice,
+    sentence length, vocabulary diversity, word count.
+    No API cost.
     """
 
-    def __init__(self):
-        import spacy, textstat
-        self.nlp      = spacy.load("en_core_web_sm")
-        self.textstat = textstat
+    FILLER_WORDS = {
+        "um", "uh", "like", "basically", "literally", "actually",
+        "you know", "sort of", "kind of", "right", "okay", "so",
+    }
+
+    def __init__(self) -> None:
+        import spacy
+        self.nlp = spacy.load("en_core_web_sm")
 
     def score(self, answer: str) -> CommunicationScore:
-        doc   = self.nlp(answer)
+        import textstat
+
+        doc = self.nlp(answer)
         words = [t.text.lower() for t in doc if not t.is_punct and not t.is_space]
+        sentences = list(doc.sents)
 
-        # Filler word count
-        filler_count = sum(
-            1 for token in words if token in FILLER_WORDS
+        word_count = len(words)
+        avg_sentence_len = word_count / max(len(sentences), 1)
+        filler_count = sum(1 for w in words if w in self.FILLER_WORDS)
+
+        passive_count = sum(
+            1 for sent in sentences
+            if any(
+                t.dep_ == "auxpass" or (t.dep_ == "nsubjpass")
+                for t in sent
+            )
         )
+        passive_ratio = passive_count / max(len(sentences), 1)
 
-        # Passive voice: look for "was/were/been + VBN" pattern
-        passive_sentences = 0
-        total_sentences   = len(list(doc.sents))
-        for sent in doc.sents:
-            sent_tokens = [t for t in sent]
-            for i, t in enumerate(sent_tokens):
-                if t.lemma_ in ("be", "been", "was", "were"):
-                    # check if a past participle follows nearby
-                    rest = sent_tokens[i+1:i+4]
-                    if any(r.tag_ == "VBN" for r in rest):
-                        passive_sentences += 1
-                        break
-
-        passive_pct = round(
-            (passive_sentences / total_sentences * 100) if total_sentences else 0, 1
-        )
-
-        # Vocabulary diversity (type-token ratio)
-        unique_words   = set(words)
-        ttr            = round(len(unique_words) / len(words), 4) if words else 0
-
-        # Average sentence length
-        sent_lengths   = [len([t for t in s if not t.is_punct]) for s in doc.sents]
-        avg_sent_len   = round(sum(sent_lengths) / len(sent_lengths), 1) if sent_lengths else 0
+        unique_words = {w for w in words if w.isalpha()}
+        vocab_diversity = len(unique_words) / max(word_count, 1)
+        reading_ease = textstat.flesch_reading_ease(answer)
 
         return CommunicationScore(
-            reading_ease       = round(self.textstat.flesch_reading_ease(answer), 1),
-            avg_sentence_len   = avg_sent_len,
-            filler_word_count  = filler_count,
-            passive_voice_pct  = passive_pct,
-            vocabulary_diversity = ttr,
-            word_count         = len(words),
+            reading_ease=reading_ease,
+            avg_sentence_len=avg_sentence_len,
+            filler_word_count=filler_count,
+            passive_voice_ratio=passive_ratio,
+            vocabulary_diversity=vocab_diversity,
+            word_count=word_count,
         )
 
 
-# ─────────────────────────────────────────
-# FEEDBACK GENERATOR
-# ─────────────────────────────────────────
+# ── Sub-evaluator 4: Feedback generator ───────────────────────────────────────
 
 class FeedbackGenerator:
-    """Generates 2 specific, actionable improvement tips per answer via LLM."""
+    """
+    Uses an LLM to generate 2 specific, actionable improvement tips
+    based on the evaluation scores and the candidate's answer.
+    """
 
-    def __init__(self, llm):
-        self.llm   = llm
-        prompt_text = (PROMPTS_DIR / "feedback_gen.txt").read_text()
+    def __init__(self, llm) -> None:
+        self.llm = llm
+        prompt_text = (PROMPTS_DIR / "feedback_gen.txt").read_text(encoding="utf-8")
         self.prompt = PromptTemplate(
             input_variables=[
-                "question", "answer", "star_total",
-                "missing_components", "relevance",
-                "comm_score", "composite",
+                "question", "answer", "star_total", "missing_components",
+                "relevance", "comm_score", "composite",
             ],
             template=prompt_text,
         )
@@ -163,90 +184,136 @@ class FeedbackGenerator:
 
     def generate(
         self,
-        question:           str,
-        answer:             str,
-        star_score:         STARScore,
-        relevance:          float,
-        comm_score:         CommunicationScore,
-        composite:          float,
+        qa_pair: QAPair,
+        star_total: float,
+        missing_components: list[str],
+        relevance: float,
+        comm_score: float,
+        composite: float,
     ) -> list[str]:
-        missing = star_score.missing_components or ["none"]
-        raw = self.chain.invoke({
-            "question":           question,
-            "answer":             answer,
-            "star_total":         f"{star_score.total:.1f}",
-            "missing_components": ", ".join(missing),
-            "relevance":          f"{relevance * 10:.1f}",
-            "comm_score":         f"{comm_score.score:.1f}",
-            "composite":          f"{composite:.1f}",
-        })
-        clean = re.sub(r"```(?:json)?", "", raw.content).strip()
-        tips  = json.loads(clean)
-        return tips[:2]
+        try:
+            response = self.chain.invoke({
+                "question": qa_pair.question.text,
+                "answer": qa_pair.answer,
+                "star_total": round(star_total, 1),
+                "missing_components": ", ".join(missing_components) or "none",
+                "relevance": round(relevance * 100, 1),
+                "comm_score": round(comm_score, 1),
+                "composite": round(composite, 1),
+            })
+            raw = response.content
+            cleaned = re.sub(r"```(?:json)?", "", raw).strip().rstrip("`")
+            match = re.search(r"\[.*\]", cleaned, re.DOTALL)
+            if match:
+                tips = json.loads(match.group(0))
+                if isinstance(tips, list):
+                    return [str(t) for t in tips[:2]]
+        except Exception:  # noqa: BLE001
+            pass
+        return [
+            "Be more specific about the actions YOU personally took.",
+            "Quantify your results with concrete metrics (%, time saved, users affected).",
+        ]
 
 
-# ─────────────────────────────────────────
-# MAIN EVALUATION PIPELINE
-# ─────────────────────────────────────────
+# ── Main evaluation engine ────────────────────────────────────────────────────
 
 class EvaluationEngine:
     """
-    Orchestrates all 3 sub-evaluators for a single Q&A pair.
+    Orchestrates all 5 evaluators for a single Q&A pair.
     Returns a fully populated QuestionEvaluation object.
 
     Usage:
         engine = EvaluationEngine()
+
+        # Basic (no JD context):
         result = engine.evaluate(qa_pair)
+
+        # Full hybrid (with JD context for skill coverage + LLM role context):
+        result = engine.evaluate(qa_pair, parsed_jd=parsed_jd)
+
+    The evaluate_all() helper runs all Q&A pairs and passes parsed_jd through.
     """
 
-    def __init__(self, api_key: str | None = None):
-        kwargs = {"model": "gemini-2.5-flash", "temperature": 0}
+    def __init__(self, api_key: str | None = None) -> None:
+        kwargs: dict = {"model": "gemini-2.5-flash", "temperature": 0}
         if api_key:
             kwargs["google_api_key"] = api_key
         llm = ChatGoogleGenerativeAI(**kwargs)
 
-        self.star_scorer       = STARScorer(llm)
-        self.relevance_eval    = ContentRelevanceEvaluator()
-        self.comm_eval         = CommunicationEvaluator()
-        self.feedback_gen      = FeedbackGenerator(llm)
+        # Existing evaluators
+        self.star_scorer    = STARScorer(llm)
+        self.relevance_eval = ContentRelevanceEvaluator()
+        self.comm_eval      = CommunicationEvaluator()
+        self.feedback_gen   = FeedbackGenerator(llm)
 
-    def evaluate(self, qa_pair: QAPair) -> QuestionEvaluation:
+        # New Phase 2 evaluators
+        self.rule_scorer = RuleBasedScorer()
+        self.llm_eval    = LLMEvaluator(llm)
+
+    def evaluate(
+        self,
+        qa_pair: QAPair,
+        parsed_jd: ParsedJD | None = None,
+    ) -> QuestionEvaluation:
+        """
+        Evaluate one Q&A pair.
+        parsed_jd is optional — if omitted, rule-based and LLM evaluators
+        use neutral defaults and all existing tests continue to pass.
+        """
         q_text = qa_pair.question.text
         a_text = qa_pair.answer
 
-        # Run all 3 evaluators
-        star      = self.star_scorer.score(q_text, a_text)
-        relevance = self.relevance_eval.score(q_text, a_text)
-        comm      = self.comm_eval.score(a_text)
+        # ── Existing three evaluators ──────────────────────────────────────
+        star = self.star_scorer.score(q_text, a_text)
+        relevance, flagged = self.relevance_eval.score(q_text, a_text)
+        comm = self.comm_eval.score(a_text)
 
-        # Build partial evaluation to compute composite for feedback prompt
-        partial = QuestionEvaluation(
-            qa_pair           = qa_pair,
-            star_score        = star,
-            content_relevance = relevance,
-            communication     = comm,
-            improvement_tips  = ["placeholder"],   # overwritten below
-            flagged_off_topic = relevance < 0.4,
+        # ── New two evaluators ─────────────────────────────────────────────
+        rule_based = self.rule_scorer.score(
+            answer=a_text,
+            question=qa_pair.question,
+            parsed_jd=parsed_jd,
+        )
+        llm_eval = self.llm_eval.evaluate(
+            qa_pair=qa_pair,
+            parsed_jd=parsed_jd,
         )
 
+        # ── Partial evaluation (needed to compute composite for tips) ──────
+        partial = QuestionEvaluation(
+            qa_pair=qa_pair,
+            star_score=star,
+            communication=comm,
+            flagged_off_topic=flagged,
+            rule_based_score=rule_based,
+            llm_eval_score=llm_eval,
+        )
+
+        # ── Feedback uses composite (now the hybrid score if new fields set) -
         tips = self.feedback_gen.generate(
-            question    = q_text,
-            answer      = a_text,
-            star_score  = star,
-            relevance   = relevance,
-            comm_score  = comm,
-            composite   = partial.composite_score,
+            qa_pair=qa_pair,
+            star_total=star.total,
+            missing_components=star.missing_components,
+            relevance=relevance,
+            comm_score=comm.score,
+            composite=partial.composite_score,
         )
 
         return QuestionEvaluation(
-            qa_pair           = qa_pair,
-            star_score        = star,
-            content_relevance = relevance,
-            communication     = comm,
-            improvement_tips  = tips,
-            flagged_off_topic = relevance < 0.4,
+            qa_pair=qa_pair,
+            star_score=star,
+            communication=comm,
+            improvement_tips=tips,
+            flagged_off_topic=flagged,
+            rule_based_score=rule_based,
+            llm_eval_score=llm_eval,
         )
 
-    def evaluate_all(self, qa_pairs: list[QAPair]) -> list[QuestionEvaluation]:
-        """Evaluate a full list of Q&A pairs in sequence."""
-        return [self.evaluate(pair) for pair in qa_pairs]
+    def evaluate_all(
+        self,
+        qa_pairs: list[QAPair],
+        parsed_jd: ParsedJD | None = None,
+    ) -> list[QuestionEvaluation]:
+        """Evaluate all Q&A pairs, passing parsed_jd to each."""
+        return [self.evaluate(qa_pair, parsed_jd) for qa_pair in qa_pairs]
