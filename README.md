@@ -1,293 +1,176 @@
+# 🎯 AI Interview Readiness Analyzer
+
 ![CI](https://github.com/Open-Source-Fan/AI-Interview-Readiness-Analyzer/actions/workflows/ci.yml/badge.svg)
-\# 🎯 AI Interview Readiness Analyzer
 
+An AI-powered mock interview platform that generates role-specific questions from a job description, evaluates candidate answers using a **3-layer hybrid evaluation engine**, and produces a downloadable readiness report with explainable scores and actionable feedback.
 
+## 🔗 Live Demo
 
-An AI-powered mock interview platform that generates role-specific interview
-
-questions from a job description, evaluates candidate answers using the STAR
-
-method, content relevance, and communication quality, and produces a detailed
-
-readiness report with actionable feedback.
-
-
-
-\## Live Demo
-
-
-
-🔗 \[Try it here](#) <!-- add your Streamlit Cloud URL here -->
-
-
-
-\## Features
-
-
-
-\- \*\*Job description parsing\*\* — extracts role, experience level, required
-
-&#x20; skills, and tech stack using spaCy NER (no API cost)
-
-\- \*\*AI question generation\*\* — produces 10 tailored interview questions
-
-&#x20; (behavioural, technical, situational, culture fit) via Gemini
-
-\- \*\*STAR method scoring\*\* — evaluates each answer for Situation, Task,
-
-&#x20; Action, and Result completeness with evidence quotes
-
-\- \*\*Content relevance scoring\*\* — sentence-transformers cosine similarity
-
-&#x20; (free, local, no API cost)
-
-\- \*\*Communication quality analysis\*\* — reading ease, filler words, passive
-
-&#x20; voice, vocabulary diversity via spaCy + textstat
-
-\- \*\*Personalised feedback\*\* — 2 specific improvement tips per answer
-
-\- \*\*Readiness report dashboard\*\* — overall score gauge, strengths, gaps,
-
-&#x20; per-question breakdown, and practice recommendations
-
-
-
-\## Tech Stack
-
-
-
-Python · LangChain · Google Gemini · spaCy · sentence-transformers ·
-
-FastAPI · Streamlit · Plotly · pytest · GitHub Actions
-
-
-
-\## Architecture
-
-JD Input → JD Parser (spaCy) → Question Generator (Gemini)
-
-
-
-→ Mock Interview (Streamlit) → Evaluation Engine
-
-
-
-├── STAR Scorer (Gemini)
-
-
-
-├── Content Relevance (sentence-transformers)
-
-
-
-└── Communication Analyzer (spaCy + textstat)
-
-
-
-→ Readiness Report (score, strengths, gaps, recommendations)
-
-\## Running Locally
-
-
-
-```bash
-
-git clone https://github.com/Open-Source-Fan/AI-Interview-Readiness-Analyzer.git
-
-cd AI-Interview-Readiness-Analyzer
-
-python -m venv venv
-
-venv\\Scripts\\activate          # Windows
-
-pip install -r requirements.txt
-
-python -m spacy download en\_core\_web\_sm
-
-
-
-\# Add your Gemini API key
-
-copy .env.example .env
-
-\# edit .env and add GEMINI\_API\_KEY=your\_key\_here
-
-
-
-streamlit run app.py
-
-```
-
-
-
-\## Running Tests
-
-
-
-```bash
-
-python -m pytest tests/ -v
-
-```
-
-
-
-\## Project Structure
-
-src/
-
-
-
-jd\_parser.py      — Module 1: job description parsing (spaCy)
-
-
-
-question\_gen.py   — Module 2: AI question generation (Gemini)
-
-
-
-evaluator.py       — Module 4: STAR/relevance/communication evaluation
-
-
-
-schemas.py         — Pydantic data models for the full pipeline
-
-
-
-prompts/             — LLM prompt templates
-
-
-
-tests/               — pytest test suite
-
-
-
-app.py               — Streamlit frontend
-
-
-
-\## License
-
-
-
-MIT
-
-
-# AI-Powered Interview Readiness Analyzer 🚀
-
-An AI-powered mock interview platform that helps candidates prepare for technical interviews by analyzing job descriptions, generating role-specific interview questions, evaluating responses, and providing personalized improvement feedback.
-
-The system combines Large Language Models (LLMs) with traditional NLP techniques to provide a structured interview readiness assessment.
+**[Try it here → https://ai-interview-readiness-analyzer-c5hnyjdvusww9syf2gykt5.streamlit.app/)**
+*(replace with your actual Streamlit Cloud URL)*
 
 ---
 
-## Features
+## ✨ What It Does
 
-### 📄 Job Description Analysis
-- Extracts role title, required skills, experience level, and technology stack from raw job descriptions.
-- Uses spaCy-based NLP processing without additional API costs.
+1. **Paste a job description** — extracts role, experience level, required skills, and tech stack using spaCy (no API cost)
+2. **Generate tailored questions** — Gemini produces up to 10 role-specific questions across behavioural, technical, situational, and culture-fit categories
+3. **Answer at your own pace** — one question at a time with STAR method tips
+4. **Get a 4-section hybrid evaluation** — every score is explained, not just a number
+5. **Download a PDF report** — full breakdown with AI interviewer notes, objective metrics, and improvement tips
 
-### 🤖 AI-Based Question Generation
-- Generates role-specific interview questions using Google Gemini.
-- Supports different question categories:
-  - Behavioural
-  - Technical
-  - Situational
-  - Culture fit
+---
 
-### 🧠 Multi-Dimensional Answer Evaluation
+## 🧠 Hybrid Evaluation Engine
 
-Each interview answer is evaluated across multiple dimensions:
+Most interview tools give you a single opaque LLM score. This platform uses three independent evaluation tracks:
 
-#### STAR Method Evaluation (LLM Powered)
-Evaluates:
-- Situation
-- Task
-- Action
-- Result
+### 1. 🤖 AI Interviewer Assessment (Gemini)
+Gemini acts as a senior technical interviewer and scores:
+- **Technical Depth** — does the answer show real hands-on knowledge?
+- **Reasoning Quality** — does the candidate explain *why*, not just *what*?
+- **Problem Solving** — structured thinking and constraint awareness
+- **Trade-off Thinking** — awareness of alternatives and their downsides
+- **Answer Maturity** — ownership, initiative, system-level thinking
 
-Each component receives a score with supporting feedback.
+Each dimension includes a 1–2 sentence justification.
 
-#### Content Relevance Analysis
-- Uses sentence-transformers embeddings.
-- Calculates similarity between interview questions and candidate responses.
-- Runs locally without API cost.
+### 2. 📊 Objective Rule-Based Metrics (Pure Python)
+Deterministic signals computed in milliseconds, zero API cost:
+- **Ownership score** — detects first-person action language ("I designed", "I led")
+- **Impact score** — finds quantified results (%, numbers, time saved, cost reduced)
+- **Skill coverage** — compares answer against JD required skills and tech stack
+- **STAR structure** — heuristic detection of all four STAR components
+- **Answer completeness** — word count quality curve
 
-#### Communication Analysis
-Evaluates:
-- Reading difficulty
-- Filler words
-- Passive voice usage
+### 3. 🗣️ Communication Analysis (spaCy + textstat)
+- Reading ease (Flesch score)
+- Filler word count
+- Passive voice ratio
 - Vocabulary diversity
 
-Powered by spaCy and textstat.
-
-### 💡 Personalized Feedback
-- Generates specific improvement suggestions for every answer using Gemini.
-
-### 📊 Readiness Report Dashboard
-Provides:
-- Overall readiness score (0-100)
-- Performance tier
-- Strength analysis
-- Improvement areas
-- Practice recommendations
-- Question-wise evaluation breakdown
-
-### 🌐 Interactive Web Application
-Built with Streamlit:
-- Job description input
-- Mock interview workflow
-- Real-time progress tracking
-- Visual reports using Plotly
+### Final Score Formula
+```
+Composite Score =
+  LLM Assessment  × 40%  (qualitative judgment)
+  Rule-Based      × 35%  (objective, reproducible)
+  Communication   × 25%  (clarity of expression)
+```
 
 ---
 
-# Tech Stack
+## 🛠️ Tech Stack
 
 | Layer | Technology |
 |---|---|
-| LLM | Google Gemini |
-| LLM Framework | LangChain |
-| NLP | spaCy |
-| Semantic Similarity | Sentence Transformers |
-| Text Analysis | Textstat |
-| Data Validation | Pydantic |
-| Frontend | Streamlit |
-| Visualization | Plotly |
-| Testing | Pytest |
+| LLM & orchestration | Google Gemini, LangChain |
+| NLP | spaCy, textstat |
+| Semantic similarity | sentence-transformers |
+| Data validation | Pydantic |
+| Frontend | Streamlit, Plotly |
+| PDF generation | reportlab |
+| Testing | pytest |
 | CI/CD | GitHub Actions |
+| Deployment | Streamlit Cloud |
 
 ---
 
-# Project Architecture
+## 🚀 Running Locally
+
+```bash
+git clone https://github.com/Open-Source-Fan/AI-Interview-Readiness-Analyzer.git
+cd AI-Interview-Readiness-Analyzer
+
+python -m venv venv
+venv\Scripts\activate          # Windows
+# source venv/bin/activate     # Mac/Linux
+
+pip install -r requirements.txt
+
+# Add your Gemini API key
+copy .env.example .env
+# edit .env → GEMINI_API_KEY=your_key_here
+
+streamlit run app.py
+```
+
+Get a free Gemini API key at [aistudio.google.com](https://aistudio.google.com).
+
+## 🧪 Running Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+28 tests, all free (no API calls required). CI runs on every push to `main`.
+
+---
+
+## 📁 Project Structure
+
+```
 AI-Interview-Readiness-Analyzer/
-│── app.py                 # Streamlit application
+│
+├── app.py                        # Streamlit frontend (3-step UI)
 │
 ├── src/
-│   ├── schemas.py         # Data models
-│   ├── jd_parser.py       # Job description parser
-│   ├── question_gen.py    # AI question generation
-│   └── evaluator.py       # Answer evaluation engine
+│   ├── schemas.py                # All Pydantic data models
+│   ├── jd_parser.py              # Module 1: JD parsing (spaCy)
+│   ├── question_gen.py           # Module 2: Question generation (Gemini)
+│   ├── evaluator.py              # Module 4: Hybrid evaluation engine
+│   ├── rule_based_scorer.py      # Deterministic rule-based scoring
+│   ├── llm_evaluator.py          # LLM interviewer assessment
+│   └── report_gen.py             # Module 5: PDF report generation
 │
 ├── prompts/
-│   ├── question_gen.txt
-│   ├── star_scorer.txt
-│   └── feedback_gen.txt
+│   ├── question_gen.txt          # Question generation prompt
+│   ├── star_scorer.txt           # STAR evaluation prompt
+│   ├── feedback_gen.txt          # Improvement tips prompt
+│   └── interviewer_eval.txt      # Senior interviewer persona prompt
 │
 ├── tests/
+│   ├── test_schemas.py           # 13 schema tests
+│   ├── test_jd_parser.py         # 11 JD parser tests
+│   ├── test_question_gen.py      # 7 question gen tests (FakeLLM)
+│   └── test_rule_based_scorer.py # 15 rule-based scorer tests
 │
-├── config.yaml
+├── config.yaml                   # Scoring weights and thresholds
 ├── requirements.txt
-└── .github/workflows/
+└── .github/workflows/ci.yml      # GitHub Actions CI
+```
 
-# Future Improvements
-PDF export for interview reports
-FastAPI backend APIs
-User authentication
-Interview history tracking
-Voice-based answers using speech-to-text
-Production deployment with cloud infrastructure
+---
 
+## 🏗️ Architecture
 
+```
+Job Description
+      │
+      ▼
+  JD Parser (spaCy)
+  → role, skills, experience, tech stack
+      │
+      ▼
+  Question Generator (Gemini)
+  → up to 10 role-specific questions
+      │
+      ▼
+  Mock Interview (Streamlit)
+  → candidate answers, one at a time
+      │
+      ▼
+  Evaluation Engine
+  ├── LLM Evaluator (Gemini)      → depth, reasoning, maturity
+  ├── Rule-Based Scorer (Python)  → ownership, impact, skill coverage
+  └── Communication Evaluator     → clarity, filler words, reading ease
+      │
+      ▼
+  Readiness Report
+  → 4-section explainable report + PDF download
+```
+
+---
+
+## 📄 License
+
+MIT
