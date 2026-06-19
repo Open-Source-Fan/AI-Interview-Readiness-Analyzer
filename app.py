@@ -13,6 +13,7 @@ from src.schemas import QAPair, ReadinessReport
 from src.jd_parser import JDParser
 from src.question_gen import QuestionGenerator
 from src.evaluator import EvaluationEngine
+from src.report_gen import generate_pdf
 
 st.set_page_config(
     page_title="AI Interview Readiness Analyzer",
