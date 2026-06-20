@@ -6,9 +6,7 @@ An AI-powered mock interview platform that generates role-specific questions fro
 
 ## 🔗 Live Demo
 
-**[Try it here → https://ai-interview-readiness-analyzer-c5hnyjdvusww9syf2gykt5.streamlit.app/)**
-*(replace with your actual Streamlit Cloud URL)*
-
+**[🚀 Try it live](https://ai-interview-readiness-analyzer-c5hnyjdvusww9syf2gykt5.streamlit.app/)**
 ---
 
 ## ✨ What It Does
